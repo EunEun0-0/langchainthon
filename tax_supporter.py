@@ -66,7 +66,8 @@ def format_docs(docs):
     
 @st.cache_resource
 def chaining():
-    file_path = "\\Users\\USER\\Downloads\\2024년 제2기 확정 부가가치세 신고안내.pdf"
+    pdf_file_name = "2024년 제2기 확정 부가가치세 신고안내.pdf"
+    file_path = os.path.join("data", pdf_file_name)
     pages = load_and_split_pdf(file_path)
     vectorstore = get_vectorstore(pages)
     retriever = vectorstore.as_retriever()
