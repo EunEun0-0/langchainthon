@@ -150,8 +150,6 @@ def chaining():
 
 rag_chain = chaining()
 
-if "messages" not in st.session_state:
-    st.session_state["messages"] = [{"role": "assistant", "content": "헌법에 대해 무엇이든 물어보세요!"}]
 
 for msg in st.session_state.messages:
     st.chat_message(msg['role']).write(msg['content'])
