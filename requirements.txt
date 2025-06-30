@@ -6,6 +6,6 @@ langchain-openai
 langchain-text-splitters
 faiss-cpu
 pypdf
-protobuf
-pysqlite3-binary==0.3.0
+protobuf==3.20.3
+pysqlite3-binary
 chromadb
