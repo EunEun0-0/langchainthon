@@ -10,6 +10,14 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
+import sys
+# sys.version_info.major가 3이고, sys.version_info.minor가 10 이상인 경우만 실행하는 것이 안전
+if sys.version_info.major == 3 and sys.version_info.minor >= 10: # Python 3.10 이상일 때
+    try:
+        __import__('pysqlite3')
+        sys.modules['sqlite3'] = sys.modules['pysqlite3']
+    except ImportError:
+        pass # pysqlite3가 없으면 원래 sqlite3 사용 (이 경우 오류가 발생할 것임)
 
 os.environ["OPENAI_API_KEY"] = st.secrets['OPENAI_API_KEY']
 
