@@ -8,4 +8,3 @@ faiss-cpu
 pypdf
 protobuf==3.20.3
 pysqlite3-binary
-chromadb
