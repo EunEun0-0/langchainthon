@@ -67,9 +67,13 @@ def format_docs(docs):
 @st.cache_resource
 def chaining():
     pdf_file_name = "2024년 제2기 확정 부가가치세 신고안내.pdf"
+    pdf_file_name_2 = "2025.1기 확정 부가가치세 신고안내 매뉴얼.pdf"
     file_path = os.path.join("data", pdf_file_name)
+    file_path_2= os.path.join("data", pdf_file_name_2)
     pages = load_and_split_pdf(file_path)
-    vectorstore = get_vectorstore(pages)
+    pages_2 = load_and_split_pdf(file_path_2)
+    all_pages = pages + pages_2
+    vectorstore = get_vectorstore(all_pages)
     retriever = vectorstore.as_retriever()
 
     # Define the answer question prompt
