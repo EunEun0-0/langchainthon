@@ -73,7 +73,9 @@ def build_rag_chain():
     try:
         base_docs_paths = [
             os.path.join("data", "2025.1기 확정 부가가치세 신고안내 매뉴얼.pdf"),
-            os.path.join("data", "2024년 제2기 확정 부가가치세 신고안내.pdf")
+            os.path.join("data", "2024년 제2기 확정 부가가치세 신고안내.pdf"),
+            os.path.join("data", "부가가치세_국세청_유권해석사례.pdf"),
+            os.path.join("data", "부가가치세_실무사례.pdf")
         ]
         base_documents = load_and_split_documents(base_docs_paths)
         vectorstore = get_vectorstore(base_documents)
