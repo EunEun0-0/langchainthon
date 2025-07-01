@@ -30,7 +30,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 # --- 3. API 키 설정 (보안 강화) ---
 try:
-os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 except (KeyError, FileNotFoundError):
     st.error("🚨 OpenAI API 키를 찾을 수 없습니다. .streamlit/secrets.toml 파일에 키를 설정해주세요.")
     st.stop()
