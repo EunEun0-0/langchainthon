@@ -135,7 +135,7 @@ def build_agent_executor():
     
     # --- [도구 3] 웹 검색 도구 (선택 사항) ---
     # 최신 정보를 위해 웹 검색이 필요할 경우 사용
-    web_search_tool = TavilySearchResults()
+    web_search_tool = TavilySearchResults(max_results=2)
 
     # 에이전트가 사용할 도구 리스트
     tools = [calculator, retriever_tool, web_search_tool]
@@ -143,39 +143,24 @@ def build_agent_executor():
     # 에이전트 프롬프트 설정
     # LLM이 도구를 어떻게 사용할지, 어떤 역할을 할지 지시합니다.
     prompt = ChatPromptTemplate.from_messages([
-        ("system","""
-    [지시사항]
-    당신은 대한민국 부가가치세법을 기반으로 한 전문 Q&A 봇입니다. 사용자의 질문에 대해 정확하고, 상세하며, 법률적 근거를 바탕으로 답변해야 합니다.
-    만약 사용자가 [첨부된 파일 내용]을 제공하면, 반드시 그 내용을 최우선으로 참고하여 답변해야 합니다.
-    
-    [답변 생성 원칙]
-    1. **정확성:** 반드시 대한민국 부가가치세법 및 관련 규정에 부합하는 내용만을 답변합니다.
-    2. **구체성:** 추상적인 답변 대신 구체적인 상황과 연결하여 설명하고 예시를 들어 이해를 돕습니다.
-    3. **근거 제시:** 단순히 "네/아니오"로 끝나는 답변이 아닌, 왜 그런지 이유와 근거를 함께 제시합니다.
-    4. **최신성:** 기본 지식은 25년 매뉴얼을 따르되, 과거와 관련된 질문에는 24년 매뉴얼을 참고합니다.
-    5. **파일 내용 우선:** 사용자가 파일을 첨부했다면, 검색된 일반 지식보다 첨부 파일의 내용을 우선하여 답변합니다.
-    6. **계산 강화:** 계산이 필요한 경우, 반드시 계산 과정을 단계별로 설명하고 각 단계의 숫자를 명시하라
-    
-    [답변 구조]
-    - **핵심 요약:** 질문에 대한 간결하고 직접적인 답변.
-    - **상세 설명:** 핵심 요약에 대한 구체적인 근거와 추가 정보.
-    - **주의사항/참고:** 추가적으로 알아야 할 점, 예외 사항, 전문가 상담 권유 등.
-    
-    ---
-    [검색된 일반 지식]
-    {context}
-    ---
-    """),
+        ("system", """
+        당신은 전문 세무 상담사 AI 에이전트 '세봇이'입니다.
+        사용자의 질문에 답변하기 위해 사용 가능한 도구들을 적극적으로 활용해야 합니다.
+        이전 대화 내용을 참고하여 맥락에 맞는 답변을 하세요.
+
+        - **vat_law_search**: 부가가치세 법률, 규정, 절차에 대한 질문일 때 사용하세요.
+        - **calculator**: 숫자 계산이 필요할 때 사용하세요.
+        - **tavily_search_results_json**: 최신 정보나 법률 외 일반 정보가 필요할 때 사용하세요.
+        
+        답변은 항상 한국어로, 친절하고 명확하게 제공해야 합니다.
+        """),
+        MessagesPlaceholder(variable_name="chat_history", optional=True),
         ("human", "{input}"),
-        # Agent가 이전 대화 기록을 참고할 수 있도록 하는 placeholder
-        ("placeholder", "{agent_scratchpad}"),
+        MessagesPlaceholder(variable_name="agent_scratchpad"),
     ])
 
-    # 에이전트 생성
     agent = create_tool_calling_agent(llm, tools, prompt)
-    
-    # 에이전트 실행기 생성
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True) # verbose=True로 설정하면 생각 과정을 볼 수 있습니다.
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
     
     return agent_executor
 
@@ -311,11 +296,15 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
 [사용자 질문]
 {user_prompt}
 """
+    agent_input = {
+        "input": final_input,
+        "chat_history": chat_history,
+    }
+    
     with st.chat_message("assistant"):
-        with st.spinner("답변을 생성하는 중..."):
-            response = agent_executor.invoke(final_prompt)
-            # 응답을 state에만 추가하고, 화면에 직접 쓰지 않습니다.
+        with st.spinner("생각 중..."):
+            response = agent_executor.invoke(agent_input)
             final_answer = response.get('output', '오류: 답변을 생성하지 못했습니다.')
+            
             st.session_state.messages.append({"role": "assistant", "content": final_answer})
-            # rerun을 호출하여 for 루프가 이 새 메시지를 그리도록 합니다.
             st.rerun()
