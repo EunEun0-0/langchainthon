@@ -237,11 +237,8 @@ if user_input := st.chat_input("질문을 입력해주세요 :)"):
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     user_prompt = st.session_state.messages[-1]["content"]
     
-    # 1. 이전 대화 기록을 문자열로 포맷
-    # 마지막 메시지(현재 질문)는 제외하고 가져옴
     chat_history_str = format_chat_history(st.session_state.messages[:-1])
     
-    # 2. 파일 컨텍스트 준비
     file_context_str = ""
     if st.session_state.file_context:
         file_context_str = f"""
@@ -249,7 +246,6 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
 {st.session_state.file_context}
 ---
 """
-    # 3. 최종 프롬프트 구성 (대화 기록 + 파일 내용 + 새 질문)
     final_prompt = f"""
 {file_context_str}
 [이전 대화 내용]
@@ -263,7 +259,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
     with st.chat_message("assistant"):
         with st.spinner("답변을 생성하는 중..."):
             response = rag_chain.invoke(final_prompt)
-            st.write(response)
+            # 응답을 state에만 추가하고, 화면에 직접 쓰지 않습니다.
             st.session_state.messages.append({"role": "assistant", "content": response})
-
-            st.session_state.messages.append({"role": "assistant", "content": response})
+            # rerun을 호출하여 for 루프가 이 새 메시지를 그리도록 합니다.
+            st.rerun()
