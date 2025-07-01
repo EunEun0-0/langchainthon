@@ -125,6 +125,18 @@ def build_rag_chain():
     )
     return rag_chain
 
+# --- [추가] 대화 기록을 문자열로 변환하는 함수 ---
+def format_chat_history(messages):
+    """세션의 대화 기록을 LLM에 전달할 형식의 문자열로 변환합니다."""
+    if not messages:
+        return ""
+    # 마지막 6개 메시지 (3쌍의 질문/답변)를 컨텍스트로 사용
+    history = []
+    for msg in messages[-6:]:
+        role = "사용자" if msg["role"] == "user" else "챗봇"
+        history.append(f"{role}: {msg['content']}")
+    return "\n".join(history)
+
 # --- 5. 메인 로직 ---
 rag_chain = build_rag_chain()
 
@@ -225,13 +237,25 @@ if user_input := st.chat_input("질문을 입력해주세요 :)"):
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     user_prompt = st.session_state.messages[-1]["content"]
     
-    final_prompt = user_prompt
+    # 1. 이전 대화 기록을 문자열로 포맷
+    # 마지막 메시지(현재 질문)는 제외하고 가져옴
+    chat_history_str = format_chat_history(st.session_state.messages[:-1])
+    
+    # 2. 파일 컨텍스트 준비
+    file_context_str = ""
     if st.session_state.file_context:
-        final_prompt = f"""
+        file_context_str = f"""
 [첨부된 파일 내용]
 {st.session_state.file_context}
 ---
-위 첨부파일 내용을 바탕으로 아래 질문에 답변해 주세요.
+"""
+    # 3. 최종 프롬프트 구성 (대화 기록 + 파일 내용 + 새 질문)
+    final_prompt = f"""
+{file_context_str}
+[이전 대화 내용]
+{chat_history_str}
+---
+위 파일 내용과 대화 맥락을 바탕으로 아래 질문에 답변해 주세요.
 
 [사용자 질문]
 {user_prompt}
@@ -240,5 +264,6 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         with st.spinner("답변을 생성하는 중..."):
             response = rag_chain.invoke(final_prompt)
             st.write(response)
-            # 응답을 state에 추가
+            st.session_state.messages.append({"role": "assistant", "content": response})
+
             st.session_state.messages.append({"role": "assistant", "content": response})
