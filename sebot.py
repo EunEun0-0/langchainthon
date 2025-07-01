@@ -27,16 +27,38 @@ from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.tools import tool
+from langchain.tools.retriever import create_retriever_tool
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage
 
 # --- 3. API 키 설정 (보안 강화) ---
 try:
+    # Streamlit Secrets에서 API 키 로드
     os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+    # Tavily Search API 키 (웹 검색 도구용, 선택 사항)
+    os.environ["TAVILY_API_KEY"] = st.secrets["TAVILY_API_KEY"]
 except (KeyError, FileNotFoundError):
-    st.error("🚨 OpenAI API 키를 찾을 수 없습니다. .streamlit/secrets.toml 파일에 키를 설정해주세요.")
+    st.error("🚨 API 키를 찾을 수 없습니다. .streamlit/secrets.toml 파일에 키를 설정해주세요.")
     st.stop()
 
 
 # --- 4. LangChain 백엔드 함수 ---
+@tool
+def calculator(expression: str) -> str:
+    """
+    사용자로부터 받은 수학적 표현식을 계산합니다.
+    이 도구는 덧셈, 뺄셈, 곱셈, 나눗셈 등 기본적인 사칙연산을 처리할 수 있습니다.
+    예시: "35000 * 0.1" 또는 "10000 + 2500"
+    """
+    try:
+        # 경고: eval()은 안전하지 않을 수 있으므로 실제 프로덕션에서는
+        #      더 안전한 라이브러리(예: numexpr) 사용을 권장합니다.
+        result = eval(expression)
+        return f"계산 결과: {result}"
+    except Exception as e:
+        return f"계산 오류: {e}"
 
 @st.cache_resource
 def load_and_split_documents(file_paths):
@@ -68,8 +90,8 @@ def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
 @st.cache_resource
-def build_rag_chain():
-    """RAG 체인을 빌드하는 함수"""
+def get_retriever():
+    """문서로부터 retriever를 생성하는 함수 (RAG 도구의 기반)"""
     try:
         base_docs_paths = [
             os.path.join("data", "2025.1기 확정 부가가치세 신고안내 매뉴얼.pdf"),
@@ -78,16 +100,50 @@ def build_rag_chain():
             os.path.join("data", "부가가치세_실무사례.pdf"),
             os.path.join("data", "부가세 신고할 때 자주 묻는 질문들_토스페이먼츠.pdf")
         ]
-        base_documents = load_and_split_documents(base_docs_paths)
-        vectorstore = get_vectorstore(base_documents)
-        retriever = vectorstore.as_retriever()
+        
+        all_pages = []
+        for file_path in base_docs_paths:
+            loader = PyPDFLoader(file_path)
+            all_pages.extend(loader.load_and_split())
+
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        split_docs = text_splitter.split_documents(all_pages)
+        
+        vectorstore = Chroma.from_documents(
+            documents=split_docs,
+            embedding=OpenAIEmbeddings(model='text-embedding-3-small')
+        )
+        return vectorstore.as_retriever()
     except Exception as e:
         st.error(f"🚨 기본 PDF 문서를 로드하는 데 실패했습니다: {e}")
         st.info("'data' 폴더에 PDF 파일이 있는지 확인해주세요.")
         st.stop()
 
+@st.cache_resource
+def build_agent_executor():
+    """필요한 도구들을 포함한 에이전트 실행기를 빌드합니다."""
+    
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    
+    # --- [도구 2] RAG 검색 도구 생성 ---
+    retriever = get_retriever()
+    retriever_tool = create_retriever_tool(
+        retriever,
+        "vat_law_search", # 도구 이름
+        "대한민국 부가가치세(VAT) 법률, 규정, 신고 절차에 대한 정보를 검색합니다. 세금 용어, 신고 기한, 공제 항목 등에 대한 질문에 사용하세요." # 도구 설명
+    )
+    
+    # --- [도구 3] 웹 검색 도구 (선택 사항) ---
+    # 최신 정보를 위해 웹 검색이 필요할 경우 사용
+    web_search_tool = TavilySearchResults()
 
-    qa_system_prompt = """
+    # 에이전트가 사용할 도구 리스트
+    tools = [calculator, retriever_tool, web_search_tool]
+
+    # 에이전트 프롬프트 설정
+    # LLM이 도구를 어떻게 사용할지, 어떤 역할을 할지 지시합니다.
+    prompt = ChatPromptTemplate.from_messages([
+        ("system","""
     [지시사항]
     당신은 대한민국 부가가치세법을 기반으로 한 전문 Q&A 봇입니다. 사용자의 질문에 대해 정확하고, 상세하며, 법률적 근거를 바탕으로 답변해야 합니다.
     만약 사용자가 [첨부된 파일 내용]을 제공하면, 반드시 그 내용을 최우선으로 참고하여 답변해야 합니다.
@@ -109,22 +165,20 @@ def build_rag_chain():
     [검색된 일반 지식]
     {context}
     ---
-    """
-
-    qa_prompt = ChatPromptTemplate.from_messages([
-        ("system", qa_system_prompt),
+    """),
         ("human", "{input}"),
+        # Agent가 이전 대화 기록을 참고할 수 있도록 하는 placeholder
+        ("placeholder", "{agent_scratchpad}"),
     ])
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    # 에이전트 생성
+    agent = create_tool_calling_agent(llm, tools, prompt)
     
-    rag_chain = (
-        {"context": retriever | format_docs, "input": RunnablePassthrough()}
-        | qa_prompt
-        | llm
-        | StrOutputParser()
-    )
-    return rag_chain
+    # 에이전트 실행기 생성
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True) # verbose=True로 설정하면 생각 과정을 볼 수 있습니다.
+    
+    return agent_executor
+
 
 # --- [추가] 대화 기록을 문자열로 변환하는 함수 ---
 def format_chat_history(messages):
@@ -139,7 +193,7 @@ def format_chat_history(messages):
     return "\n".join(history)
 
 # --- 5. 메인 로직 ---
-rag_chain = build_rag_chain()
+agent_executor = build_agent_executor()
 
 # --- 세션 상태 초기화 ---
 if "messages" not in st.session_state:
@@ -259,8 +313,9 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
 """
     with st.chat_message("assistant"):
         with st.spinner("답변을 생성하는 중..."):
-            response = rag_chain.invoke(final_prompt)
+            response = agent_executor.invoke(final_prompt)
             # 응답을 state에만 추가하고, 화면에 직접 쓰지 않습니다.
-            st.session_state.messages.append({"role": "assistant", "content": response})
+            final_answer = response.get('output', '오류: 답변을 생성하지 못했습니다.')
+            st.session_state.messages.append({"role": "assistant", "content": final_answer})
             # rerun을 호출하여 for 루프가 이 새 메시지를 그리도록 합니다.
             st.rerun()
